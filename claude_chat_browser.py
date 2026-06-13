@@ -25,7 +25,7 @@ class ClaudeChatBrowser:
     def load_conversations(self):
         """Load conversations from the JSON file."""
         try:
-            with open(self.conversations_path, 'r') as f:
+            with open(self.conversations_path, 'r', encoding='utf-8') as f:
                 self.conversations = json.load(f)
                 
             # Sort by updated_at timestamp (most recent first)
