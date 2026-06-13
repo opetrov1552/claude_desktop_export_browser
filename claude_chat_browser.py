@@ -352,28 +352,66 @@ class ClaudeChatBrowser:
 
 
 def find_data_directory():
-    """Find the most recent Claude data export directory."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dirs = []
-    
-    # Look for directories that match the pattern data-YYYY-MM-DD-HH-MM-SS
-    for item in os.listdir(base_dir):
-        if item.startswith('data-') and os.path.isdir(os.path.join(base_dir, item)):
-            # Extract date from directory name
-            try:
-                date_str = item[5:]  # Remove 'data-' prefix
-                date = datetime.datetime.strptime(date_str, '%Y-%m-%d-%H-%M-%S')
-                data_dirs.append((date, item))
-            except:
+    """Find the most recent Claude data export directory.
+
+    Searches both the script's own directory and the current working
+    directory for subdirectories that contain a ``conversations.json`` file.
+    This makes detection robust to the various names Claude uses for export
+    folders (the legacy ``data-YYYY-MM-DD-HH-MM-SS`` pattern as well as newer
+    names such as ``data-<uuid>-...-batch-0000``).
+
+    Directories whose name follows the legacy timestamp pattern are sorted by
+    the embedded timestamp; all other candidates fall back to the directory's
+    last-modified time. The most recent match is returned.
+
+    Returns:
+        str: Absolute path to the most recent export directory.
+    """
+    search_roots = []
+    for root in (os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        if root not in search_roots:
+            search_roots.append(root)
+
+    candidates = []  # list of (sort_key: datetime, path: str)
+    for root in search_roots:
+        try:
+            entries = os.listdir(root)
+        except OSError:
+            continue
+        for item in entries:
+            dir_path = os.path.join(root, item)
+            if not os.path.isdir(dir_path):
                 continue
-    
-    if not data_dirs:
+            if not os.path.isfile(os.path.join(dir_path, "conversations.json")):
+                continue
+
+            # Prefer a legacy timestamp embedded in the name; otherwise fall
+            # back to the directory's last-modified time.
+            sort_key = None
+            if item.startswith('data-'):
+                try:
+                    sort_key = datetime.datetime.strptime(
+                        item[5:], '%Y-%m-%d-%H-%M-%S')
+                except ValueError:
+                    sort_key = None
+            if sort_key is None:
+                sort_key = datetime.datetime.fromtimestamp(
+                    os.path.getmtime(dir_path))
+            candidates.append((sort_key, dir_path))
+
+    if not candidates:
         print("Error: No Claude data export directories found.")
+        print("Looked for a folder containing 'conversations.json' in:")
+        for root in search_roots:
+            print(f"  - {root}")
+        print("Unzip your Claude data export and place the folder that "
+              "contains conversations.json in one of the locations above, "
+              "then run the script again.")
         sys.exit(1)
-        
+
     # Sort by date (most recent first) and return the path
-    data_dirs.sort(reverse=True)
-    return os.path.join(base_dir, data_dirs[0][1])
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    return candidates[0][1]
 
 
 def main():
